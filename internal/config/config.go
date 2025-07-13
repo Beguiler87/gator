@@ -203,20 +203,16 @@ func HandlerReset(s *State, cmd Command) error {
 	fmt.Println("Cleared users from database.")
 	return nil
 }
-func HandlerAddFeed(s *State, cmd Command) error {
+func HandlerAddFeed(s *State, cmd Command, user database.User) error {
 	if len(cmd.Arguments) != 2 {
 		return fmt.Errorf("username and url required.")
-	}
-	cUser, err := s.DB.GetUser(context.Background(), s.Config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("couldn't get user: %w\n", err)
 	}
 	name := cmd.Arguments[0]
 	url := cmd.Arguments[1]
 	newFeed, err := s.DB.CreateFeed(context.Background(), database.CreateFeedParams{
 		Name:   sql.NullString{String: name, Valid: true},
 		Url:    sql.NullString{String: url, Valid: true},
-		UserID: uuid.NullUUID{UUID: cUser.ID, Valid: true},
+		UserID: uuid.NullUUID{UUID: user.ID, Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("could not create feed: %w\n", err)
@@ -225,7 +221,7 @@ func HandlerAddFeed(s *State, cmd Command) error {
 		ID:        uuid.New(),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-		UserID:    uuid.NullUUID{UUID: cUser.ID, Valid: true},
+		UserID:    uuid.NullUUID{UUID: user.ID, Valid: true},
 		FeedID:    uuid.NullUUID{UUID: newFeed.ID, Valid: true},
 	}
 	_, err = s.DB.CreateFeedFollow(context.Background(), params)
@@ -245,10 +241,7 @@ func HandlerFeeds(s *State, cmd Command) error {
 	}
 	return nil
 }
-func HandlerCreateFeedFollow(s *State, cmd Command) error {
-	if s.Config.CurrentUserName == "" {
-		return fmt.Errorf("A username is required. Please log in or register first.")
-	}
+func HandlerCreateFeedFollow(s *State, cmd Command, user database.User) error {
 	if len(cmd.Arguments) < 1 {
 		return fmt.Errorf("Error: usage: follow <feed-url>")
 	}
@@ -257,10 +250,6 @@ func HandlerCreateFeedFollow(s *State, cmd Command) error {
 	feed, err := s.DB.GetFeedByURL(ctx, sql.NullString{String: url, Valid: true})
 	if err != nil {
 		return fmt.Errorf("Error: Feed not found for URL: %s\n", url)
-	}
-	user, err := s.DB.GetUser(ctx, s.Config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("Error: User not found: %s\n", s.Config.CurrentUserName)
 	}
 	id := uuid.New()
 	now := time.Now()
@@ -278,15 +267,8 @@ func HandlerCreateFeedFollow(s *State, cmd Command) error {
 	fmt.Printf("User %s is now following feed %s\n", result.UserName, result.FeedName)
 	return nil
 }
-func HandlerFollowing(s *State, cmd Command) error {
-	if s.Config.CurrentUserName == "" {
-		return fmt.Errorf("username is required, please log in or register first")
-	}
+func HandlerFollowing(s *State, cmd Command, user database.User) error {
 	ctx := context.Background()
-	user, err := s.DB.GetUser(ctx, s.Config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("user not found: %s\n", s.Config.CurrentUserName)
-	}
 	follows, err := s.DB.GetFeedFollowsForUser(ctx, uuid.NullUUID{UUID: user.ID, Valid: true})
 	if err != nil {
 		return fmt.Errorf("could not fetch follows: %w\n", err)
@@ -295,4 +277,17 @@ func HandlerFollowing(s *State, cmd Command) error {
 		fmt.Println(follow.FeedName.String)
 	}
 	return nil
+}
+func MiddlewareLoggedIn(handler func(s *State, cmd Command, user database.User) error) func(*State, Command) error {
+	return func(s *State, cmd Command) error {
+		uName := s.Config.CurrentUserName
+		if len(uName) < 1 {
+			return fmt.Errorf("you must be logged in to use this command")
+		}
+		user, err := s.DB.GetUser(context.Background(), uName)
+		if err != nil {
+			return err
+		}
+		return handler(s, cmd, user)
+	}
 }

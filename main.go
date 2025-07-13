@@ -39,10 +39,10 @@ func main() {
 	cmds.Register("reset", config.HandlerReset)
 	cmds.Register("users", cmds.Users)
 	cmds.Register("agg", cmds.Agg)
-	cmds.Register("addfeed", config.HandlerAddFeed)
 	cmds.Register("feeds", config.HandlerFeeds)
-	cmds.Register("follow", config.HandlerCreateFeedFollow)
-	cmds.Register("following", config.HandlerFollowing)
+	cmds.Register("addfeed", config.MiddlewareLoggedIn(config.HandlerAddFeed))
+	cmds.Register("follow", config.MiddlewareLoggedIn(config.CreateFeedFollow))
+	cmds.Register("following", config.MiddlewareLoggedIn(config.HandlerFollowing))
 	cmdName := os.Args[1]
 	cmdArgs := os.Args[2:]
 	cmdStruct := config.Command{Name: cmdName, Arguments: cmdArgs}
