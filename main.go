@@ -1,4 +1,4 @@
-// goose connection string: goose postgres "postgres://postgres:postgres@localhost:5432/gator"
+// goose migration/connection string. Run: goose -dir sql/schema postgres "postgres://postgres:postgres@localhost:5432/gator" and add up or down depending.
 package main
 
 import (
@@ -26,6 +26,7 @@ func main() {
 	s := &config.State{
 		Config: &incoming,
 		DB:     dbQueries,
+		RawDB:  db,
 	}
 	cmds := &config.Commands{
 		Commands: make(map[string]func(*config.State, config.Command) error),
@@ -41,8 +42,10 @@ func main() {
 	cmds.Register("agg", cmds.Agg)
 	cmds.Register("feeds", config.HandlerFeeds)
 	cmds.Register("addfeed", config.MiddlewareLoggedIn(config.HandlerAddFeed))
-	cmds.Register("follow", config.MiddlewareLoggedIn(config.CreateFeedFollow))
+	cmds.Register("follow", config.MiddlewareLoggedIn(config.HandlerCreateFeedFollow))
 	cmds.Register("following", config.MiddlewareLoggedIn(config.HandlerFollowing))
+	cmds.Register("unfollow", config.MiddlewareLoggedIn(config.HandlerUnfollow))
+	cmds.Register("browse", config.MiddlewareLoggedIn(config.HandlerBrowse))
 	cmdName := os.Args[1]
 	cmdArgs := os.Args[2:]
 	cmdStruct := config.Command{Name: cmdName, Arguments: cmdArgs}

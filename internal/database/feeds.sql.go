@@ -16,7 +16,7 @@ import (
 const createFeed = `-- name: CreateFeed :one
 INSERT INTO feed (id, created_at, updated_at, name, url, user_id)
 VALUES (gen_random_uuid(), NOW(), NOW(), $1, $2, $3)
-RETURNING id, created_at, updated_at, name, url, user_id
+RETURNING id, created_at, updated_at, name, url, user_id, last_fetched_at
 `
 
 type CreateFeedParams struct {
@@ -35,6 +35,7 @@ func (q *Queries) CreateFeed(ctx context.Context, arg CreateFeedParams) (Feed, e
 		&i.Name,
 		&i.Url,
 		&i.UserID,
+		&i.LastFetchedAt,
 	)
 	return i, err
 }
@@ -93,8 +94,45 @@ func (q *Queries) CreateFeedFollow(ctx context.Context, arg CreateFeedFollowPara
 	return i, err
 }
 
+const createPost = `-- name: CreatePost :one
+INSERT INTO posts (id, created_at, updated_at, title, url, description, published_at, feed_id)
+VALUES (gen_random_uuid(), NOW(), NOW(), $1, $2, $3, $4, $5)
+ON CONFLICT (url) DO UPDATE SET updated_at = posts.updated_at
+RETURNING id, created_at, updated_at, title, url, description, published_at, feed_id
+`
+
+type CreatePostParams struct {
+	Title       sql.NullString
+	Url         string
+	Description sql.NullString
+	PublishedAt time.Time
+	FeedID      uuid.UUID
+}
+
+func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, error) {
+	row := q.db.QueryRowContext(ctx, createPost,
+		arg.Title,
+		arg.Url,
+		arg.Description,
+		arg.PublishedAt,
+		arg.FeedID,
+	)
+	var i Post
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Title,
+		&i.Url,
+		&i.Description,
+		&i.PublishedAt,
+		&i.FeedID,
+	)
+	return i, err
+}
+
 const getFeedByURL = `-- name: GetFeedByURL :one
-SELECT id, created_at, updated_at, name, url, user_id FROM feed WHERE url = $1
+SELECT id, created_at, updated_at, name, url, user_id, last_fetched_at FROM feed WHERE url = $1
 `
 
 func (q *Queries) GetFeedByURL(ctx context.Context, url sql.NullString) (Feed, error) {
@@ -107,6 +145,7 @@ func (q *Queries) GetFeedByURL(ctx context.Context, url sql.NullString) (Feed, e
 		&i.Name,
 		&i.Url,
 		&i.UserID,
+		&i.LastFetchedAt,
 	)
 	return i, err
 }
@@ -143,6 +182,87 @@ func (q *Queries) GetFeedFollowsForUser(ctx context.Context, userID uuid.NullUUI
 			&i.UserID,
 			&i.FeedID,
 			&i.FeedName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPostsForUser = `-- name: GetPostsForUser :many
+SELECT posts.id, posts.created_at, posts.updated_at, title, posts.url, description, published_at, posts.feed_id, feed.id, feed.created_at, feed.updated_at, name, feed.url, feed.user_id, last_fetched_at, feed_follows.id, feed_follows.created_at, feed_follows.updated_at, feed_follows.user_id, feed_follows.feed_id FROM posts
+JOIN feed ON posts.feed_id = feed.id
+JOIN feed_follows ON feed.id = feed_follows.feed_id
+WHERE feed_follows.user_id = $1
+ORDER BY published_at DESC
+LIMIT $2
+`
+
+type GetPostsForUserParams struct {
+	UserID uuid.NullUUID
+	Limit  int32
+}
+
+type GetPostsForUserRow struct {
+	ID            uuid.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Title         sql.NullString
+	Url           string
+	Description   sql.NullString
+	PublishedAt   time.Time
+	FeedID        uuid.UUID
+	ID_2          uuid.UUID
+	CreatedAt_2   time.Time
+	UpdatedAt_2   time.Time
+	Name          sql.NullString
+	Url_2         sql.NullString
+	UserID        uuid.NullUUID
+	LastFetchedAt sql.NullTime
+	ID_3          uuid.UUID
+	CreatedAt_3   time.Time
+	UpdatedAt_3   time.Time
+	UserID_2      uuid.NullUUID
+	FeedID_2      uuid.NullUUID
+}
+
+func (q *Queries) GetPostsForUser(ctx context.Context, arg GetPostsForUserParams) ([]GetPostsForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, getPostsForUser, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPostsForUserRow
+	for rows.Next() {
+		var i GetPostsForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Title,
+			&i.Url,
+			&i.Description,
+			&i.PublishedAt,
+			&i.FeedID,
+			&i.ID_2,
+			&i.CreatedAt_2,
+			&i.UpdatedAt_2,
+			&i.Name,
+			&i.Url_2,
+			&i.UserID,
+			&i.LastFetchedAt,
+			&i.ID_3,
+			&i.CreatedAt_3,
+			&i.UpdatedAt_3,
+			&i.UserID_2,
+			&i.FeedID_2,
 		); err != nil {
 			return nil, err
 		}

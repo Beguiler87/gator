@@ -25,3 +25,17 @@ SELECT feed_follows.*, feed.name AS feed_name
 FROM feed_follows
 INNER JOIN feed ON feed_follows.feed_id = feed.id
 WHERE feed_follows.user_id = $1;
+
+-- name: CreatePost :one
+INSERT INTO posts (id, created_at, updated_at, title, url, description, published_at, feed_id)
+VALUES (gen_random_uuid(), NOW(), NOW(), $1, $2, $3, $4, $5)
+ON CONFLICT (url) DO UPDATE SET updated_at = posts.updated_at
+RETURNING *;
+
+-- name: GetPostsForUser :many
+SELECT * FROM posts
+JOIN feed ON posts.feed_id = feed.id
+JOIN feed_follows ON feed.id = feed_follows.feed_id
+WHERE feed_follows.user_id = $1
+ORDER BY published_at DESC
+LIMIT $2;

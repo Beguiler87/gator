@@ -8,7 +8,43 @@ package database
 import (
 	"context"
 	"database/sql"
+
+	"github.com/google/uuid"
 )
+
+const getFeed = `-- name: GetFeed :one
+SELECT id FROM feed
+WHERE url = $1
+`
+
+func (q *Queries) GetFeed(ctx context.Context, url sql.NullString) (uuid.UUID, error) {
+	row := q.db.QueryRowContext(ctx, getFeed, url)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getNextFeedToFetch = `-- name: GetNextFeedToFetch :one
+SELECT id, created_at, updated_at, name, url, user_id, last_fetched_at
+FROM feed
+ORDER BY last_fetched_at NULLS FIRST
+LIMIT 1
+`
+
+func (q *Queries) GetNextFeedToFetch(ctx context.Context) (Feed, error) {
+	row := q.db.QueryRowContext(ctx, getNextFeedToFetch)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.Url,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
+}
 
 const listFeedsWithCreators = `-- name: ListFeedsWithCreators :many
 SELECT feed.name AS feed_name, feed.url, users.name AS user_name
@@ -43,4 +79,30 @@ func (q *Queries) ListFeedsWithCreators(ctx context.Context) ([]ListFeedsWithCre
 		return nil, err
 	}
 	return items, nil
+}
+
+const markFeedFetched = `-- name: MarkFeedFetched :exec
+UPDATE feed
+SET last_fetched_at = NOW(), updated_at = NOW()
+WHERE id = $1
+`
+
+func (q *Queries) MarkFeedFetched(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, markFeedFetched, id)
+	return err
+}
+
+const unfollowFeed = `-- name: UnfollowFeed :exec
+DELETE FROM feed_follows
+WHERE user_id = $1 AND feed_id = $2
+`
+
+type UnfollowFeedParams struct {
+	UserID uuid.NullUUID
+	FeedID uuid.NullUUID
+}
+
+func (q *Queries) UnfollowFeed(ctx context.Context, arg UnfollowFeedParams) error {
+	_, err := q.db.ExecContext(ctx, unfollowFeed, arg.UserID, arg.FeedID)
+	return err
 }
